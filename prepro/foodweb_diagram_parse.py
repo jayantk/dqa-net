@@ -12,11 +12,12 @@ import numpy as np
 
 from utils import get_pbar
 
-
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", default="/home/jayantk/data/shining3")
-    parser.add_argument("--target_dir", default="data/s3")
+    parser.add_argument("--question_dir", default="/home/jayantk/data/foodwebs/questions/050416/")
+    parser.add_argument("--annotation_dir", default="/home/jayantk/data/shining3/predictions_052016/dpgs/")
+    parser.add_argument("--image_dir", default="/home/jayantk/data/foodwebs/images")
+    parser.add_argument("--target_dir", default="data/foodwebs_predicted_diagram_parse_052016")
     parser.add_argument("--glove_path", default="/home/jayantk/models/glove/glove.6B.300d.txt")
     parser.add_argument("--min_count", type=int, default=5)
     parser.add_argument("--vgg_model_path", default="~/models/vgg/vgg-19.caffemodel")
@@ -26,18 +27,15 @@ def get_args():
     parser.add_argument("--prepro_images", default='True')
     return parser.parse_args()
 
-
 def qa2hypo(question, answer, flag):
     if flag == 'True':
         from qa2hypo import qa2hypo as f
         return f(question, answer, False, True)
     return "%s %s" % (question, answer)
 
-
 def _tokenize(raw):
     tokens = tuple(re.findall(r"[\w]+", raw))
     return tokens
-
 
 def _vadd(vocab_counter, word):
     word = word.lower()
@@ -58,6 +56,78 @@ def _vlup(vocab_dict, words):
 
 def _get(id_map, key):
     return id_map[key] if key in id_map else None
+
+def prepro_questions(args):
+    """
+    transform DQA questions.json files -> single statements json and single answers json.
+    sentences and answers are doubly indexed by image id first and then question number within that image (0 indexed)
+    :param args:
+    :return:
+    """
+    target_dir = args.target_dir
+    questions_dir = args.question_dir
+    raw_sents_path = os.path.join(target_dir, "raw_sents.json")
+    answers_path = os.path.join(target_dir, "answers.json")
+    meta_data_path = os.path.join(target_dir, "meta_data.json")
+    meta_data = json.load(open(meta_data_path, "r"))
+
+    ques_names = [name for name in os.listdir(questions_dir) if os.path.splitext(name)[1].endswith(".json")]
+
+    num_choices = 4
+    num_questions = 0
+    max_sent_size = 0
+    sentss_dict = {}
+    answers_dict = {}
+    fold_dict = {}
+    for i, ques_name in enumerate(ques_names):
+        fold_dict[ques_name] = set()
+
+        with open(os.path.join(questions_dir, ques_name), 'r') as f:
+            for line in f:
+                question_json = json.loads(line)
+                image_id, _ = os.path.splitext(question_json["diagram_id"])
+                question_text = question_json["question_nl"]
+                question_id = question_json["id"]
+                choices = question_json["answer_options"]
+                answer = question_json["answer"][0]
+
+                if len(choices) < num_choices:
+                    choices = choices + ["**WRONG**"] * (num_choices - len(choices))
+
+                answer_index = choices.index(answer)
+
+                sents = [_tokenize(qa2hypo(question_text, choice, args.qa2hypo)) for choice in choices]
+                max_sent_size = max(max_sent_size, max(len(sent) for sent in sents))
+                
+                if not image_id in sentss_dict:
+                    sentss_dict[image_id] =[]
+                    answers_dict[image_id] = []
+
+                sentss_dict[image_id].append(sents)
+                answers_dict[image_id].append(answer_index)
+                num_questions += 1
+
+                fold_dict[ques_name].add(image_id)
+
+    meta_data['num_choices'] = num_choices
+    meta_data['max_sent_size'] = max_sent_size
+
+    print("number of questions: %d" % num_questions)
+    print("number of choices: %d" % num_choices)
+    print("max sent size: %d" % max_sent_size)
+    print("dumping json file ... ")
+    json.dump(sentss_dict, open(raw_sents_path, "w"))
+    json.dump(answers_dict, open(answers_path, "w"))
+    json.dump(meta_data, open(meta_data_path, "w"))
+
+    print("dumping fold json ...")
+    folds_json_path = os.path.join(target_dir, "folds/fold01.json")
+    train_ids = fold_dict["qa_train.json"]
+    test_ids = fold_dict["qa_validation.json"]
+    assert len(train_ids.intersection(test_ids)) == 0
+    json.dump({"train" : list(train_ids), "test" : list(test_ids)}, open(folds_json_path, "w"))
+
+    print("done")
 
 
 def rel2text(id_map, rel):
@@ -163,11 +233,12 @@ def anno2rels(anno):
     types = set()
     rels = []
     # Unary relations
-    for text_id, d in anno['text'].items():
-        category = d['category'] if 'category' in d else ''
-        categories.add(category)
-        rel = Relation('unary', '', category, [text_id], '')
-        rels.append(rel)
+    if 'text' in anno:
+        for text_id, d in anno['text'].items():
+            category = d['category'] if 'category' in d else ''
+            categories.add(category)
+            rel = Relation('unary', '', category, [text_id], '')
+            rels.append(rel)
 
     # Counting
     if 'arrows' in anno and len(anno['arrows']) > 0:
@@ -217,7 +288,6 @@ def _get_id_map(anno):
                         id_map[origin] = id_map[dest]
     return id_map
 
-
 def prepro_annos(args):
     """
     Transform DQA annotation.json -> a list of tokenized fact sentences for each image in json file
@@ -225,7 +295,6 @@ def prepro_annos(args):
     :param args:
     :return:
     """
-    data_dir = args.data_dir
     target_dir = args.target_dir
 
     # For debugging
@@ -239,7 +308,7 @@ def prepro_annos(args):
     meta_data_path = os.path.join(target_dir, "meta_data.json")
     meta_data = json.load(open(meta_data_path, "r"))
     facts_dict = {}
-    annos_dir = os.path.join(data_dir, "annotations")
+    annos_dir = args.annotation_dir
     anno_names = [name for name in os.listdir(annos_dir) if name.endswith(".json")]
     max_num_facts = 0
     max_fact_size = 0
@@ -248,10 +317,10 @@ def prepro_annos(args):
         image_name, _ = os.path.splitext(anno_name)
         image_id, _ = os.path.splitext(image_name)
         anno_path = os.path.join(annos_dir, anno_name)
-        anno = json.load(open(anno_path, 'r'))
+        anno = json.load(open(anno_path, 'r'))["0"]
         rels = anno2rels(anno)
         id_map = _get_id_map(anno)
-        text_facts = [rel2text(id_map, rel) for rel in rels]
+        text_facts = [rel2text(id_map, rel) for rel in rels] # + ['null_fact']
         text_facts = list(set(_tokenize(fact) for fact in text_facts if fact is not None))
         max_fact_size = max([max_fact_size] + [len(fact) for fact in text_facts])
         # For debugging only
@@ -277,64 +346,6 @@ def prepro_annos(args):
     print("dumping json files ... ")
     json.dump(meta_data, open(meta_data_path, 'w'))
     json.dump(facts_dict, open(facts_path, 'w'))
-    print("done")
-
-
-def prepro_questions(args):
-    """
-    transform DQA questions.json files -> single statements json and single answers json.
-    sentences and answers are doubly indexed by image id first and then question number within that image (0 indexed)
-    :param args:
-    :return:
-    """
-    data_dir = args.data_dir
-    target_dir = args.target_dir
-    questions_dir = os.path.join(data_dir, "questions")
-    raw_sents_path = os.path.join(target_dir, "raw_sents.json")
-    answers_path = os.path.join(target_dir, "answers.json")
-    meta_data_path = os.path.join(target_dir, "meta_data.json")
-    meta_data = json.load(open(meta_data_path, "r"))
-
-    sentss_dict = {}
-    answers_dict = {}
-
-    ques_names = sorted([name for name in os.listdir(questions_dir) if os.path.splitext(name)[1].endswith(".json")],
-                        key=lambda x: int(os.path.splitext(os.path.splitext(x)[0])[0]))
-    num_choices = 0
-    num_questions = 0
-    max_sent_size = 0
-    pbar = get_pbar(len(ques_names)).start()
-    for i, ques_name in enumerate(ques_names):
-        image_name, _ = os.path.splitext(ques_name)
-        image_id, _ = os.path.splitext(image_name)
-        sentss = []
-        answers = []
-        ques_path = os.path.join(questions_dir, ques_name)
-        ques = json.load(open(ques_path, "r"))
-        for ques_id, (ques_text, d) in enumerate(ques['questions'].items()):
-            if d['abcLabel']:
-                continue
-            sents = [_tokenize(qa2hypo(ques_text, choice, args.qa2hypo)) for choice in d['answerTexts']]
-            max_sent_size = max(max_sent_size, max(len(sent) for sent in sents))
-            assert not num_choices or num_choices == len(sents), "number of choices don't match: %s" % ques_name
-            num_choices = len(sents)
-            sentss.append(sents)
-            answers.append(d['correctAnswer'])
-            num_questions += 1
-        sentss_dict[image_id] = sentss
-        answers_dict[image_id] = answers
-        pbar.update(i)
-    pbar.finish()
-    meta_data['num_choices'] = num_choices
-    meta_data['max_sent_size'] = max_sent_size
-
-    print("number of questions: %d" % num_questions)
-    print("number of choices: %d" % num_choices)
-    print("max sent size: %d" % max_sent_size)
-    print("dumping json file ... ")
-    json.dump(sentss_dict, open(raw_sents_path, "w"))
-    json.dump(answers_dict, open(answers_path, "w"))
-    json.dump(meta_data, open(meta_data_path, "w"))
     print("done")
 
 
@@ -429,20 +440,23 @@ def indexing(args):
     json.dump(facts_dict, open(facts_path, 'w'))
     print("done")
 
-
 def create_meta_data(args):
     target_dir = args.target_dir
     if not os.path.exists(target_dir):
         os.mkdir(target_dir)
+
+    folds_dir = os.path.join(target_dir, "folds")
+    if not os.path.exists(folds_dir):
+        os.mkdir(folds_dir)
+
     meta_data_path = os.path.join(target_dir, "meta_data.json")
-    meta_data = {'data_dir': args.data_dir}
+    meta_data = {'question_dir': args.question_dir,
+                 'annotation_dir': args.annotation_dir}
     json.dump(meta_data, open(meta_data_path, "w"))
 
-
 def create_image_ids_and_paths(args):
-    data_dir = args.data_dir
     target_dir = args.target_dir
-    images_dir = os.path.join(data_dir, "images")
+    images_dir = args.image_dir
     image_ids_path = os.path.join(target_dir, "image_ids.json")
     image_paths_path = os.path.join(target_dir, "image_paths.json")
     image_names = [name for name in os.listdir(images_dir) if name.endswith(".png")]
@@ -455,7 +469,6 @@ def create_image_ids_and_paths(args):
     json.dump(image_paths, open(image_paths_path, "w"))
     print("done")
 
-
 def prepro_images(args):
     if args.prepro_images == 'False':
         print("Skipping image preprocessing.")
@@ -467,16 +480,6 @@ def prepro_images(args):
     os.system("th prepro_images.lua --image_path_json %s --cnn_proto %s --cnn_model %s --out_path %s"
               % (image_paths_path, proto_path, model_path, out_path))
 
-
-def copy_folds(args):
-    data_dir = args.data_dir
-    target_dir = args.target_dir
-    for num in range(1,6):
-        from_folds_path = os.path.join(data_dir, "fold%d.json" % num)
-        to_folds_path = os.path.join(target_dir, "fold%d.json" % num)
-        shutil.copy(from_folds_path, to_folds_path)
-
-
 if __name__ == "__main__":
     ARGS = get_args()
     create_meta_data(ARGS)
@@ -485,4 +488,5 @@ if __name__ == "__main__":
     prepro_annos(ARGS)
     build_vocab(ARGS)
     indexing(ARGS)
-    prepro_images(ARGS)
+    # prepro_images(ARGS)
+    
