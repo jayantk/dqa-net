@@ -4,6 +4,7 @@ import json
 import shutil
 from collections import defaultdict, namedtuple
 import re
+import sys
 import random
 from pprint import pprint
 
@@ -22,15 +23,20 @@ def get_args():
     parser.add_argument("--vgg_model_path", default="~/models/vgg/vgg-19.caffemodel")
     parser.add_argument("--vgg_proto_path", default="~/models/vgg/vgg-19.prototxt")
     parser.add_argument("--debug", default='False')
-    parser.add_argument("--qa2hypo", default='False')
+    parser.add_argument("--qa2hypo", default='True')
+    parser.add_argument("--qa2hypo_path", default="../dqa/qa2hypo")
     parser.add_argument("--prepro_images", default='True')
     return parser.parse_args()
 
 
-def qa2hypo(question, answer, flag):
+def qa2hypo(question, answer, flag, qa2hypo_path):
     if flag == 'True':
+        # add qa2hypo_path to the Python path at runtime
+        sys.path.insert(0, qa2hypo_path)
+        sys.path.insert(0, qa2hypo_path+'/stanford-corenlp-python')
         from qa2hypo import qa2hypo as f
         return f(question, answer, False, True)
+    # attach the answer to the question
     return "%s %s" % (question, answer)
 
 
@@ -314,7 +320,7 @@ def prepro_questions(args):
         for ques_id, (ques_text, d) in enumerate(ques['questions'].items()):
             if d['abcLabel']:
                 continue
-            sents = [_tokenize(qa2hypo(ques_text, choice, args.qa2hypo)) for choice in d['answerTexts']]
+            sents = [_tokenize(qa2hypo(ques_text, choice, args.qa2hypo, args.qa2hypo_path)) for choice in d['answerTexts']]
             max_sent_size = max(max_sent_size, max(len(sent) for sent in sents))
             assert not num_choices or num_choices == len(sents), "number of choices don't match: %s" % ques_name
             num_choices = len(sents)
@@ -440,6 +446,9 @@ def create_meta_data(args):
 
 
 def create_image_ids_and_paths(args):
+    if args.prepro_images == 'False':
+        print("Skipping image preprocessing.")
+        return
     data_dir = args.data_dir
     target_dir = args.target_dir
     images_dir = os.path.join(data_dir, "images")
