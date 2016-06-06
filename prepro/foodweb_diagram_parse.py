@@ -15,9 +15,9 @@ from utils import get_pbar
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--question_dir", default="/home/jayantk/data/foodwebs/questions/050416/")
-    parser.add_argument("--annotation_dir", default="/home/jayantk/data/shining3/predictions_052016/dpgs/")
+    parser.add_argument("--annotation_dir", default="/home/jayantk/data/foodwebs/diagrams/052716/")
     parser.add_argument("--image_dir", default="/home/jayantk/data/foodwebs/images")
-    parser.add_argument("--target_dir", default="data/foodwebs_predicted_diagram_parse_052016")
+    parser.add_argument("--target_dir", default="data/foodwebs_predicted_052716")
     parser.add_argument("--glove_path", default="/home/jayantk/models/glove/glove.6B.300d.txt")
     parser.add_argument("--min_count", type=int, default=5)
     parser.add_argument("--vgg_model_path", default="~/models/vgg/vgg-19.caffemodel")
@@ -123,9 +123,10 @@ def prepro_questions(args):
     print("dumping fold json ...")
     folds_json_path = os.path.join(target_dir, "folds/fold01.json")
     train_ids = fold_dict["qa_train.json"]
-    test_ids = fold_dict["qa_validation.json"]
+    val_ids = fold_dict["qa_validation.json"]
+    test_ids = fold_dict["qa_test.json"]
     assert len(train_ids.intersection(test_ids)) == 0
-    json.dump({"train" : list(train_ids), "test" : list(test_ids)}, open(folds_json_path, "w"))
+    json.dump({"train" : list(train_ids), "val" : list(val_ids), "test" : list(test_ids)}, open(folds_json_path, "w"))
 
     print("done")
 
@@ -320,7 +321,7 @@ def prepro_annos(args):
         anno = json.load(open(anno_path, 'r'))["0"]
         rels = anno2rels(anno)
         id_map = _get_id_map(anno)
-        text_facts = [rel2text(id_map, rel) for rel in rels] # + ['null_fact']
+        text_facts = [rel2text(id_map, rel) for rel in rels] # + ['null_fact
         text_facts = list(set(_tokenize(fact) for fact in text_facts if fact is not None))
         max_fact_size = max([max_fact_size] + [len(fact) for fact in text_facts])
         # For debugging only
@@ -488,5 +489,5 @@ if __name__ == "__main__":
     prepro_annos(ARGS)
     build_vocab(ARGS)
     indexing(ARGS)
-    # prepro_images(ARGS)
+    prepro_images(ARGS)
     

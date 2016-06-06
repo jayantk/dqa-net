@@ -120,6 +120,7 @@ class BaseRunner(object):
         tensors = self.tensors
         num_examples = sum(len(batch[0]) for batch in batches)
         feed_dict = self._get_feed_dict(batches, 'eval')
+        # 'yp'
         ops = [tensors[name] for name in ['correct', 'loss', 'summary', 'global_step']]
         correct, loss, summary, global_step = sess.run(ops, feed_dict=feed_dict)
         num_corrects = np.sum(correct[:num_examples])

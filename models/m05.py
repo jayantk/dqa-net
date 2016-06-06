@@ -197,13 +197,24 @@ class Tower(BaseTower):
             sim = Sim(params, f, u_encoder, first_u)
             tensors['p'] = sim.p
             if params.mode == 'dqanet':
+                print('DQANET')
                 logit = sim.logit
             elif params.mode == 'vqa':
+                print('VQA')
                 image_trans_mat = tf.get_variable('I', shape=[G, d])
                 image_trans_bias = tf.get_variable('bI', shape=[])
                 g = tf.tanh(tf.matmul(image, image_trans_mat) + image_trans_bias, name='g')  # [N, d]
                 aug_g = tf.expand_dims(g, 2, name='aug_g')  # [N, d, 1]
                 logit = tf.squeeze(tf.batch_matmul(first_u, aug_g), [2])  # [N, C]
+            elif params.mode == 'sent':
+                print('SENT')
+                print(first_u.get_shape())
+                classifier_vec = tf.get_variable('sentclassifier', shape=[1, d])
+                aug_classifier_vec = tf.matmul(tf.ones([N, 1]), classifier_vec)
+                aug_cv2 = tf.expand_dims(aug_classifier_vec, 2, name='aug_cv2')
+                print(aug_cv2.get_shape())
+                logit = tf.squeeze(tf.batch_matmul(first_u, aug_cv2), [2])
+                print(logit.get_shape())
             else:
                 raise Exception("Invalid mode: {}".format(params.mode))
             tensors['logit'] = logit

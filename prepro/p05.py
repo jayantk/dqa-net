@@ -17,13 +17,13 @@ from utils import get_pbar
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", default="/home/jayantk/data/shining3")
-    parser.add_argument("--target_dir", default="data/s3")
+    parser.add_argument("--target_dir", default="data/foodwebs_predicted_052716")
     parser.add_argument("--glove_path", default="/home/jayantk/models/glove/glove.6B.300d.txt")
     parser.add_argument("--min_count", type=int, default=5)
     parser.add_argument("--vgg_model_path", default="~/models/vgg/vgg-19.caffemodel")
     parser.add_argument("--vgg_proto_path", default="~/models/vgg/vgg-19.prototxt")
     parser.add_argument("--debug", default='False')
-    parser.add_argument("--qa2hypo", default='True')
+    parser.add_argument("--qa2hypo", default='False')
     parser.add_argument("--qa2hypo_path", default="../dqa/qa2hypo")
     parser.add_argument("--prepro_images", default='True')
     return parser.parse_args()
@@ -169,11 +169,12 @@ def anno2rels(anno):
     types = set()
     rels = []
     # Unary relations
-    for text_id, d in anno['text'].items():
-        category = d['category'] if 'category' in d else ''
-        categories.add(category)
-        rel = Relation('unary', '', category, [text_id], '')
-        rels.append(rel)
+    if 'text' in anno:
+        for text_id, d in anno['text'].items():
+            category = d['category'] if 'category' in d else ''
+            categories.add(category)
+            rel = Relation('unary', '', category, [text_id], '')
+            rels.append(rel)
 
     # Counting
     if 'arrows' in anno and len(anno['arrows']) > 0:
@@ -245,7 +246,7 @@ def prepro_annos(args):
     meta_data_path = os.path.join(target_dir, "meta_data.json")
     meta_data = json.load(open(meta_data_path, "r"))
     facts_dict = {}
-    annos_dir = os.path.join(data_dir, "annotations")
+    annos_dir = os.path.join(data_dir, "predictions_052716/dpgs/")
     anno_names = [name for name in os.listdir(annos_dir) if name.endswith(".json")]
     max_num_facts = 0
     max_fact_size = 0
@@ -254,7 +255,7 @@ def prepro_annos(args):
         image_name, _ = os.path.splitext(anno_name)
         image_id, _ = os.path.splitext(image_name)
         anno_path = os.path.join(annos_dir, anno_name)
-        anno = json.load(open(anno_path, 'r'))
+        anno = json.load(open(anno_path, 'r'))["0"]
         rels = anno2rels(anno)
         id_map = _get_id_map(anno)
         text_facts = [rel2text(id_map, rel) for rel in rels]
@@ -488,10 +489,11 @@ def copy_folds(args):
 
 if __name__ == "__main__":
     ARGS = get_args()
-    create_meta_data(ARGS)
-    create_image_ids_and_paths(ARGS)
-    prepro_questions(ARGS)
-    prepro_annos(ARGS)
-    build_vocab(ARGS)
-    indexing(ARGS)
-    prepro_images(ARGS)
+    # create_meta_data(ARGS)
+#     create_image_ids_and_paths(ARGS)
+#     prepro_questions(ARGS)
+#     prepro_annos(ARGS)
+#     build_vocab(ARGS)
+#     indexing(ARGS)
+#     prepro_images(ARGS)
+    copy_folds(ARGS)
